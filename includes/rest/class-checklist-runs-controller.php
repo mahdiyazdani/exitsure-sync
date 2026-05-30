@@ -73,6 +73,32 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 
 			register_rest_route(
 				self::NAMESPACE,
+				'/checklists/(?P<run_id>[\d]+)/items',
+				array(
+					'args' => array(
+						'run_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::EDITABLE,
+						'callback'            => array( $this, 'update_checklist_run_items' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'checked_item_ids' => array(
+								'required'          => true,
+								'type'              => 'array',
+								'validate_callback' => array( $this, 'validate_positive_integer_array' ),
+							),
+						),
+					),
+				)
+			);
+
+			register_rest_route(
+				self::NAMESPACE,
 				'/checklists/(?P<run_id>[\d]+)/complete',
 				array(
 					'args' => array(
@@ -278,6 +304,100 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 					array( 'status' => 404 )
 				);
 			}
+
+			return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
+		}
+
+		/**
+		 * Updates checklist run items without completing the run.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function update_checklist_run_items( $request ) {
+			global $wpdb;
+
+			$run_items_table = ExitSure_Sync_DB::get_table_name( 'run_items' );
+
+			if ( '' === $run_items_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_checklist_tables',
+					esc_html__( 'Checklist tables could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$run_id = absint( $request->get_param( 'run_id' ) );
+			$run    = $this->get_checklist_run_by_id( $run_id );
+
+			if ( empty( $run ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_not_found',
+					esc_html__( 'Checklist run could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( 'completed' === $run['status'] ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_completed',
+					esc_html__( 'Completed checklist runs cannot be updated.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$items            = $this->get_checklist_run_items( $run_id );
+			$checked_item_ids = $this->normalize_id_array( $request->get_param( 'checked_item_ids' ) );
+
+			if ( empty( $items ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_items_not_found',
+					esc_html__( 'Checklist run items could not be found.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$item_ids         = wp_list_pluck( $items, 'id' );
+			$item_ids         = array_map( 'absint', $item_ids );
+			$unknown_item_ids = array_diff( $checked_item_ids, $item_ids );
+
+			if ( ! empty( $unknown_item_ids ) ) {
+				return new WP_Error(
+					'exitsure_sync_invalid_checklist_item_ids',
+					esc_html__( 'One or more checklist items do not belong to this checklist run.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$datetime = ExitSure_Sync_DB::get_current_datetime();
+
+			foreach ( $items as $item ) {
+				$item_id    = absint( $item['id'] );
+				$is_checked = in_array( $item_id, $checked_item_ids, true );
+
+				$wpdb->update(
+					$run_items_table,
+					array(
+						'is_checked' => $is_checked ? 1 : 0,
+						'checked_at' => $is_checked ? $datetime : null,
+						'updated_at' => $datetime,
+					),
+					array(
+						'id' => $item_id,
+					),
+					array(
+						'%d',
+						'%s',
+						'%s',
+					),
+					array(
+						'%d',
+					)
+				);
+			}
+
+			$run = $this->get_checklist_run_by_id( $run_id );
 
 			return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
 		}
