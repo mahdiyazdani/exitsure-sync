@@ -20,6 +20,7 @@ if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
 		 */
 		public function init() {
 			$this->load_dependencies();
+			$this->init_pages();
 
 			add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		}
@@ -42,6 +43,20 @@ if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
 
 				require_once $file;
 			}
+		}
+
+		/**
+		 * Initializes admin pages.
+		 *
+		 * @return void
+		 */
+		private function init_pages() {
+			if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
+				return;
+			}
+
+			$locations_page = new ExitSure_Sync_Locations_Page();
+			$locations_page->init();
 		}
 
 		/**
