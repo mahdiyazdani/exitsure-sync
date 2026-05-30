@@ -28,12 +28,20 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 		const ADD_LOCATION_ACTION = 'exitsure_sync_add_location';
 
 		/**
+		 * Archive location action name.
+		 *
+		 * @var string
+		 */
+		const ARCHIVE_LOCATION_ACTION = 'exitsure_sync_archive_location';
+
+		/**
 		 * Registers page hooks.
 		 *
 		 * @return void
 		 */
 		public function init() {
 			add_action( 'admin_post_' . self::ADD_LOCATION_ACTION, array( $this, 'handle_add_location' ) );
+			add_action( 'admin_post_' . self::ARCHIVE_LOCATION_ACTION, array( $this, 'handle_archive_location' ) );
 		}
 
 		/**
@@ -116,6 +124,7 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 									<th><?php echo esc_html__( 'Name', 'exitsure-sync' ); ?></th>
 									<th><?php echo esc_html__( 'Description', 'exitsure-sync' ); ?></th>
 									<th><?php echo esc_html__( 'Created', 'exitsure-sync' ); ?></th>
+									<th><?php echo esc_html__( 'Actions', 'exitsure-sync' ); ?></th>
 								</tr>
 							</thead>
 							<tbody>
@@ -125,6 +134,11 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 										<td><?php echo esc_html( $location['name'] ); ?></td>
 										<td><?php echo esc_html( $location['description'] ); ?></td>
 										<td><?php echo esc_html( $location['created_at'] ); ?></td>
+										<td>
+											<a class="button button-small" href="<?php echo esc_url( $this->get_archive_location_url( $location ) ); ?>">
+												<?php echo esc_html__( 'Archive', 'exitsure-sync' ); ?>
+											</a>
+										</td>
 									</tr>
 								<?php endforeach; ?>
 							</tbody>
@@ -164,6 +178,39 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 		}
 
 		/**
+		 * Handles archiving a location from the admin screen.
+		 *
+		 * @return void
+		 */
+		public function handle_archive_location() {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( 'Sorry, you are not allowed to do that.', 'exitsure-sync' ) );
+			}
+
+			$location_id = isset( $_GET['location_id'] ) ? absint( wp_unslash( $_GET['location_id'] ) ) : 0;
+
+			if ( $location_id <= 0 ) {
+				$this->redirect_to_locations_page( 'missing_location' );
+			}
+
+			check_admin_referer( self::ARCHIVE_LOCATION_ACTION . '_' . $location_id, '_exitsure_sync_nonce' );
+
+			$location = $this->get_location( $location_id );
+
+			if ( empty( $location ) ) {
+				$this->redirect_to_locations_page( 'missing_location' );
+			}
+
+			$archived = $this->archive_location( $location_id );
+
+			if ( ! $archived ) {
+				$this->redirect_to_locations_page( 'archive_failed' );
+			}
+
+			$this->redirect_to_locations_page( 'archived' );
+		}
+
+		/**
 		 * Renders an admin notice when needed.
 		 *
 		 * @return void
@@ -181,8 +228,26 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 				return;
 			}
 
+			if ( 'archived' === $status ) {
+				$this->render_notice( esc_html__( 'Location archived successfully.', 'exitsure-sync' ), 'success' );
+
+				return;
+			}
+
 			if ( 'missing_name' === $status ) {
 				$this->render_notice( esc_html__( 'Location name is required.', 'exitsure-sync' ), 'error' );
+
+				return;
+			}
+
+			if ( 'missing_location' === $status ) {
+				$this->render_notice( esc_html__( 'Location could not be found.', 'exitsure-sync' ), 'error' );
+
+				return;
+			}
+
+			if ( 'archive_failed' === $status ) {
+				$this->render_notice( esc_html__( 'Location could not be archived.', 'exitsure-sync' ), 'error' );
 
 				return;
 			}
@@ -298,6 +363,98 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 			);
 
 			exit;
+		}
+
+		/**
+		 * Gets a location by ID.
+		 *
+		 * @param int $location_id Location ID.
+		 *
+		 * @return array|null
+		 */
+		private function get_location( $location_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'locations' );
+
+			if ( '' === $table ) {
+				return null;
+			}
+
+			$location = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE id = %d AND is_archived = %d",
+					absint( $location_id ),
+					0
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $location ) ) {
+				return null;
+			}
+
+			return $location;
+		}
+
+		/**
+		 * Archives a location.
+		 *
+		 * @param int $location_id Location ID.
+		 *
+		 * @return bool
+		 */
+		private function archive_location( $location_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'locations' );
+
+			if ( '' === $table ) {
+				return false;
+			}
+
+			$updated = $wpdb->update(
+				$table,
+				array(
+					'is_archived' => 1,
+					'updated_at'  => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => absint( $location_id ),
+				),
+				array(
+					'%d',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			return false !== $updated;
+		}
+
+		/**
+		 * Gets the archive location URL.
+		 *
+		 * @param array $location Location row.
+		 *
+		 * @return string
+		 */
+		private function get_archive_location_url( $location ) {
+			$location_id = absint( $location['id'] );
+
+			return wp_nonce_url(
+				add_query_arg(
+					array(
+						'action'      => self::ARCHIVE_LOCATION_ACTION,
+						'location_id' => $location_id,
+					),
+					admin_url( 'admin-post.php' )
+				),
+				self::ARCHIVE_LOCATION_ACTION . '_' . $location_id,
+				'_exitsure_sync_nonce'
+			);
 		}
 	}
 }
