@@ -54,6 +54,25 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 
 			register_rest_route(
 				self::NAMESPACE,
+				'/checklists/(?P<run_id>[\d]+)',
+				array(
+					'args' => array(
+						'run_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => array( $this, 'get_checklist_run' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+					),
+				)
+			);
+
+			register_rest_route(
+				self::NAMESPACE,
 				'/checklists/(?P<run_id>[\d]+)/complete',
 				array(
 					'args' => array(
@@ -239,6 +258,28 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 				$this->prepare_checklist_run_for_response( $run ),
 				201
 			);
+		}
+
+		/**
+		 * Gets a checklist run.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function get_checklist_run( $request ) {
+			$run_id = absint( $request->get_param( 'run_id' ) );
+			$run    = $this->get_checklist_run_by_id( $run_id );
+
+			if ( empty( $run ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_not_found',
+					esc_html__( 'Checklist run could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
 		}
 
 		/**
