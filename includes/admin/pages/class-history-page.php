@@ -37,10 +37,13 @@ if ( ! class_exists( 'ExitSure_Sync_History_Page' ) ) {
 				return;
 			}
 
-			$locations           = $this->get_locations();
+			$locations            = $this->get_locations();
 			$selected_location_id = $this->get_selected_location_id();
-			$selected_type       = $this->get_selected_type();
-			$runs                = $this->get_completed_runs( $selected_location_id, $selected_type );
+			$selected_type        = $this->get_selected_type();
+			$runs                 = $this->get_completed_runs( $selected_location_id, $selected_type );
+			$selected_run_id      = $this->get_selected_run_id();
+			$selected_run         = $selected_run_id > 0 ? $this->get_completed_run( $selected_run_id ) : null;
+			$selected_run_items   = ! empty( $selected_run ) ? $this->get_run_items( $selected_run_id ) : array();
 
 			?>
 			<div class="wrap">
@@ -97,6 +100,16 @@ if ( ! class_exists( 'ExitSure_Sync_History_Page' ) ) {
 					</form>
 				</div>
 
+				<?php if ( $selected_run_id > 0 && empty( $selected_run ) ) : ?>
+					<div class="notice notice-error">
+						<p><?php echo esc_html__( 'Checklist run could not be found.', 'exitsure-sync' ); ?></p>
+					</div>
+				<?php endif; ?>
+
+				<?php if ( ! empty( $selected_run ) ) : ?>
+					<?php $this->render_checklist_run_detail( $selected_run, $selected_run_items ); ?>
+				<?php endif; ?>
+
 				<div class="card">
 					<h2><?php echo esc_html__( 'Completed Checklists', 'exitsure-sync' ); ?></h2>
 
@@ -112,6 +125,7 @@ if ( ! class_exists( 'ExitSure_Sync_History_Page' ) ) {
 									<th><?php echo esc_html__( 'Started', 'exitsure-sync' ); ?></th>
 									<th><?php echo esc_html__( 'Completed', 'exitsure-sync' ); ?></th>
 									<th><?php echo esc_html__( 'Note', 'exitsure-sync' ); ?></th>
+									<th><?php echo esc_html__( 'Actions', 'exitsure-sync' ); ?></th>
 								</tr>
 							</thead>
 							<tbody>
@@ -123,6 +137,11 @@ if ( ! class_exists( 'ExitSure_Sync_History_Page' ) ) {
 										<td><?php echo esc_html( $run['started_at'] ); ?></td>
 										<td><?php echo esc_html( $run['completed_at'] ); ?></td>
 										<td><?php echo esc_html( $run['note'] ); ?></td>
+										<td>
+											<a class="button button-small" href="<?php echo esc_url( $this->get_view_run_url( $run ) ); ?>">
+												<?php echo esc_html__( 'View', 'exitsure-sync' ); ?>
+											</a>
+										</td>
 									</tr>
 								<?php endforeach; ?>
 							</tbody>
@@ -339,6 +358,194 @@ if ( ! class_exists( 'ExitSure_Sync_History_Page' ) ) {
 			}
 
 			return $runs;
+		}
+
+		/**
+		 * Gets selected checklist run ID.
+		 *
+		 * @return int
+		 */
+		private function get_selected_run_id() {
+			return isset( $_GET['view_run_id'] ) ? absint( wp_unslash( $_GET['view_run_id'] ) ) : 0;
+		}
+
+		/**
+		 * Gets a completed checklist run.
+		 *
+		 * @param int $run_id Checklist run ID.
+		 *
+		 * @return array|null
+		 */
+		private function get_completed_run( $run_id ) {
+			global $wpdb;
+
+			$runs_table      = ExitSure_Sync_DB::get_table_name( 'runs' );
+			$locations_table = ExitSure_Sync_DB::get_table_name( 'locations' );
+
+			if ( '' === $runs_table || '' === $locations_table ) {
+				return null;
+			}
+
+			$run = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT runs.*, locations.name AS location_name
+					FROM {$runs_table} AS runs
+					LEFT JOIN {$locations_table} AS locations ON locations.id = runs.location_id
+					WHERE runs.id = %d AND runs.status = %s
+					LIMIT 1",
+					absint( $run_id ),
+					'completed'
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $run ) ) {
+				return null;
+			}
+
+			return $run;
+		}
+
+		/**
+		 * Gets checklist run items.
+		 *
+		 * @param int $run_id Checklist run ID.
+		 *
+		 * @return array
+		 */
+		private function get_run_items( $run_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'run_items' );
+
+			if ( '' === $table ) {
+				return array();
+			}
+
+			$items = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE run_id = %d ORDER BY id ASC",
+					absint( $run_id )
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $items ) ) {
+				return array();
+			}
+
+			return $items;
+		}
+
+		/**
+		 * Gets the view run URL.
+		 *
+		 * @param array $run Checklist run row.
+		 *
+		 * @return string
+		 */
+		private function get_view_run_url( $run ) {
+			return add_query_arg(
+				array(
+					'page'        => self::MENU_SLUG,
+					'location_id' => absint( $run['location_id'] ),
+					'type'        => sanitize_key( $run['type'] ),
+					'view_run_id' => absint( $run['id'] ),
+				),
+				admin_url( 'admin.php' )
+			);
+		}
+
+		/**
+		 * Renders checklist run detail.
+		 *
+		 * @param array $run   Checklist run row.
+		 * @param array $items Checklist run item rows.
+		 *
+		 * @return void
+		 */
+		private function render_checklist_run_detail( $run, $items ) {
+			?>
+			<div class="card">
+				<h2>
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %d: Checklist run ID. */
+							__( 'Checklist Run #%d', 'exitsure-sync' ),
+							absint( $run['id'] )
+						)
+					);
+					?>
+				</h2>
+
+				<table class="widefat striped">
+					<tbody>
+						<tr>
+							<th><?php echo esc_html__( 'Location', 'exitsure-sync' ); ?></th>
+							<td><?php echo esc_html( $run['location_name'] ); ?></td>
+						</tr>
+						<tr>
+							<th><?php echo esc_html__( 'Type', 'exitsure-sync' ); ?></th>
+							<td><?php echo esc_html( ucfirst( $run['type'] ) ); ?></td>
+						</tr>
+						<tr>
+							<th><?php echo esc_html__( 'Started', 'exitsure-sync' ); ?></th>
+							<td><?php echo esc_html( $run['started_at'] ); ?></td>
+						</tr>
+						<tr>
+							<th><?php echo esc_html__( 'Completed', 'exitsure-sync' ); ?></th>
+							<td><?php echo esc_html( $run['completed_at'] ); ?></td>
+						</tr>
+						<tr>
+							<th><?php echo esc_html__( 'Note', 'exitsure-sync' ); ?></th>
+							<td><?php echo esc_html( $run['note'] ); ?></td>
+						</tr>
+					</tbody>
+				</table>
+
+				<h3><?php echo esc_html__( 'Checklist Items', 'exitsure-sync' ); ?></h3>
+
+				<?php if ( empty( $items ) ) : ?>
+					<p><?php echo esc_html__( 'No checklist items found for this run.', 'exitsure-sync' ); ?></p>
+				<?php else : ?>
+					<table class="widefat striped">
+						<thead>
+							<tr>
+								<th><?php echo esc_html__( 'Task', 'exitsure-sync' ); ?></th>
+								<th><?php echo esc_html__( 'Required', 'exitsure-sync' ); ?></th>
+								<th><?php echo esc_html__( 'Checked', 'exitsure-sync' ); ?></th>
+								<th><?php echo esc_html__( 'Checked At', 'exitsure-sync' ); ?></th>
+								<th><?php echo esc_html__( 'Note', 'exitsure-sync' ); ?></th>
+							</tr>
+						</thead>
+						<tbody>
+							<?php foreach ( $items as $item ) : ?>
+								<tr>
+									<td><?php echo esc_html( $item['title_snapshot'] ); ?></td>
+									<td>
+										<?php
+										echo ! empty( $item['is_required_snapshot'] )
+											? esc_html__( 'Yes', 'exitsure-sync' )
+											: esc_html__( 'No', 'exitsure-sync' );
+										?>
+									</td>
+									<td>
+										<?php
+										echo ! empty( $item['is_checked'] )
+											? esc_html__( 'Yes', 'exitsure-sync' )
+											: esc_html__( 'No', 'exitsure-sync' );
+										?>
+									</td>
+									<td><?php echo esc_html( $item['checked_at'] ); ?></td>
+									<td><?php echo esc_html( $item['note'] ); ?></td>
+								</tr>
+							<?php endforeach; ?>
+						</tbody>
+					</table>
+				<?php endif; ?>
+			</div>
+			<?php
 		}
 	}
 }
