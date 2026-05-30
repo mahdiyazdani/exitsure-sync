@@ -67,9 +67,9 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		 */
 		public function init() {
 			$this->load_dependencies();
-			$this->init_rest_api();
 				
 			add_action( 'init', array( $this, 'load_textdomain' ) );
+			add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
 		}
 
 		/**
@@ -80,7 +80,10 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		private function load_dependencies() {
 			$files = array(
 				EXITSURE_SYNC_PATH . 'includes/class-db.php',
-				EXITSURE_SYNC_PATH . 'includes/class-rest-controller.php',
+				EXITSURE_SYNC_PATH . 'includes/rest/abstract-class-rest-controller.php',
+				EXITSURE_SYNC_PATH . 'includes/rest/class-health-controller.php',
+				EXITSURE_SYNC_PATH . 'includes/rest/class-locations-controller.php',
+				EXITSURE_SYNC_PATH . 'includes/rest/class-task-templates-controller.php',
 			);
 
 			foreach ( $files as $file ) {
@@ -93,17 +96,30 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		}
 
 		/**
-		 * Initializes REST API controllers.
+		 * Registers REST API routes.
 		 *
 		 * @return void
 		 */
-		private function init_rest_api() {
-			if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
-				return;
-			}
+		public function register_rest_routes() {
+			$controllers = array(
+				'ExitSure_Sync_Health_REST_Controller',
+				'ExitSure_Sync_Locations_REST_Controller',
+				'ExitSure_Sync_Task_Templates_REST_Controller',
+			);
 
-			$rest_controller = new ExitSure_Sync_REST_Controller();
-			$rest_controller->init();
+			foreach ( $controllers as $controller_class ) {
+				if ( ! class_exists( $controller_class ) ) {
+					continue;
+				}
+
+				$controller = new $controller_class();
+
+				if ( ! method_exists( $controller, 'register_routes' ) ) {
+					continue;
+				}
+
+				$controller->register_routes();
+			}
 		}
 
 		/**
