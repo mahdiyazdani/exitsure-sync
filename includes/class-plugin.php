@@ -67,6 +67,7 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		 */
 		public function init() {
 			$this->load_dependencies();
+			$this->init_admin();
 
 			add_action( 'init', array( $this, 'load_textdomain' ) );
 			add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
@@ -80,6 +81,7 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		private function load_dependencies() {
 			$files = array(
 				EXITSURE_SYNC_PATH . 'includes/class-db.php',
+				EXITSURE_SYNC_PATH . 'includes/admin/class-admin.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/abstract-class-rest-controller.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/class-health-controller.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/class-history-controller.php',
@@ -96,6 +98,24 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 
 				require_once $file;
 			}
+		}
+
+		/**
+		 * Initializes admin functionality.
+		 *
+		 * @return void
+		 */
+		private function init_admin() {
+			if ( ! is_admin() ) {
+				return;
+			}
+
+			if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
+				return;
+			}
+
+			$admin = new ExitSure_Sync_Admin();
+			$admin->init();
 		}
 
 		/**
