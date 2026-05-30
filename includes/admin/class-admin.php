@@ -34,6 +34,7 @@ if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
 			$files = array(
 				EXITSURE_SYNC_PATH . 'includes/admin/pages/class-dashboard-page.php',
 				EXITSURE_SYNC_PATH . 'includes/admin/pages/class-locations-page.php',
+				EXITSURE_SYNC_PATH . 'includes/admin/pages/class-task-templates-page.php',
 			);
 
 			foreach ( $files as $file ) {
@@ -51,12 +52,24 @@ if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
 		 * @return void
 		 */
 		private function init_pages() {
-			if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
-				return;
-			}
+			$pages = array(
+				'ExitSure_Sync_Locations_Page',
+				'ExitSure_Sync_Task_Templates_Page',
+			);
 
-			$locations_page = new ExitSure_Sync_Locations_Page();
-			$locations_page->init();
+			foreach ( $pages as $page_class ) {
+				if ( ! class_exists( $page_class ) ) {
+					continue;
+				}
+
+				$page = new $page_class();
+
+				if ( ! method_exists( $page, 'init' ) ) {
+					continue;
+				}
+
+				$page->init();
+			}
 		}
 
 		/**
@@ -65,8 +78,9 @@ if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
 		 * @return void
 		 */
 		public function register_menu() {
-			$dashboard_page = class_exists( 'ExitSure_Sync_Dashboard_Page' ) ? new ExitSure_Sync_Dashboard_Page() : null;
-			$locations_page = class_exists( 'ExitSure_Sync_Locations_Page' ) ? new ExitSure_Sync_Locations_Page() : null;
+			$dashboard_page      = class_exists( 'ExitSure_Sync_Dashboard_Page' ) ? new ExitSure_Sync_Dashboard_Page() : null;
+			$locations_page      = class_exists( 'ExitSure_Sync_Locations_Page' ) ? new ExitSure_Sync_Locations_Page() : null;
+			$task_templates_page = class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ? new ExitSure_Sync_Task_Templates_Page() : null;
 
 			add_menu_page(
 				esc_html__( 'ExitSure Sync', 'exitsure-sync' ),
@@ -94,6 +108,15 @@ if ( ! class_exists( 'ExitSure_Sync_Admin' ) ) {
 				'manage_options',
 				'exitsure-sync-locations',
 				null !== $locations_page ? array( $locations_page, 'render' ) : '__return_null'
+			);
+
+			add_submenu_page(
+				'exitsure-sync',
+				esc_html__( 'Tasks', 'exitsure-sync' ),
+				esc_html__( 'Tasks', 'exitsure-sync' ),
+				'manage_options',
+				'exitsure-sync-tasks',
+				null !== $task_templates_page ? array( $task_templates_page, 'render' ) : '__return_null'
 			);
 		}
 	}
