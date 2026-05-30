@@ -35,6 +35,13 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 		const ARCHIVE_LOCATION_ACTION = 'exitsure_sync_archive_location';
 
 		/**
+		 * Update location action name.
+		 *
+		 * @var string
+		 */
+		const UPDATE_LOCATION_ACTION = 'exitsure_sync_update_location';
+
+		/**
 		 * Registers page hooks.
 		 *
 		 * @return void
@@ -42,6 +49,7 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 		public function init() {
 			add_action( 'admin_post_' . self::ADD_LOCATION_ACTION, array( $this, 'handle_add_location' ) );
 			add_action( 'admin_post_' . self::ARCHIVE_LOCATION_ACTION, array( $this, 'handle_archive_location' ) );
+			add_action( 'admin_post_' . self::UPDATE_LOCATION_ACTION, array( $this, 'handle_update_location' ) );
 		}
 
 		/**
@@ -54,7 +62,8 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 				return;
 			}
 
-			$locations = $this->get_locations();
+			$locations     = $this->get_locations();
+			$edit_location = $this->get_edit_location();
 
 			?>
 			<div class="wrap">
@@ -62,54 +71,109 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 
 				<?php $this->render_admin_notice(); ?>
 
-				<div class="card">
-					<h2><?php echo esc_html__( 'Add Location', 'exitsure-sync' ); ?></h2>
+				<?php if ( empty( $edit_location ) ) : ?>
+					<div class="card">
+						<h2><?php echo esc_html__( 'Add Location', 'exitsure-sync' ); ?></h2>
+	
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="<?php echo esc_attr( self::ADD_LOCATION_ACTION ); ?>" />
+	
+							<?php wp_nonce_field( self::ADD_LOCATION_ACTION, '_exitsure_sync_nonce' ); ?>
+	
+							<table class="form-table" role="presentation">
+								<tbody>
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-location-name">
+												<?php echo esc_html__( 'Name', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<input
+												type="text"
+												id="exitsure-sync-location-name"
+												name="name"
+												class="regular-text"
+												required
+											/>
+										</td>
+									</tr>
+	
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-location-description">
+												<?php echo esc_html__( 'Description', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<textarea
+												id="exitsure-sync-location-description"
+												name="description"
+												class="large-text"
+												rows="3"
+											></textarea>
+										</td>
+									</tr>
+								</tbody>
+							</table>
+	
+							<?php submit_button( esc_html__( 'Add Location', 'exitsure-sync' ) ); ?>
+						</form>
+					</div>
+				<?php endif; ?>
 
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-						<input type="hidden" name="action" value="<?php echo esc_attr( self::ADD_LOCATION_ACTION ); ?>" />
+				<?php if ( ! empty( $edit_location ) ) : ?>
+					<div class="card">
+						<h2><?php echo esc_html__( 'Edit Location', 'exitsure-sync' ); ?></h2>
 
-						<?php wp_nonce_field( self::ADD_LOCATION_ACTION, '_exitsure_sync_nonce' ); ?>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="<?php echo esc_attr( self::UPDATE_LOCATION_ACTION ); ?>" />
+							<input type="hidden" name="location_id" value="<?php echo esc_attr( absint( $edit_location['id'] ) ); ?>" />
 
-						<table class="form-table" role="presentation">
-							<tbody>
-								<tr>
-									<th scope="row">
-										<label for="exitsure-sync-location-name">
-											<?php echo esc_html__( 'Name', 'exitsure-sync' ); ?>
-										</label>
-									</th>
-									<td>
-										<input
-											type="text"
-											id="exitsure-sync-location-name"
-											name="name"
-											class="regular-text"
-											required
-										/>
-									</td>
-								</tr>
+							<?php wp_nonce_field( self::UPDATE_LOCATION_ACTION . '_' . absint( $edit_location['id'] ), '_exitsure_sync_nonce' ); ?>
 
-								<tr>
-									<th scope="row">
-										<label for="exitsure-sync-location-description">
-											<?php echo esc_html__( 'Description', 'exitsure-sync' ); ?>
-										</label>
-									</th>
-									<td>
-										<textarea
-											id="exitsure-sync-location-description"
-											name="description"
-											class="large-text"
-											rows="3"
-										></textarea>
-									</td>
-								</tr>
-							</tbody>
-						</table>
+							<table class="form-table" role="presentation">
+								<tbody>
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-edit-location-name">
+												<?php echo esc_html__( 'Name', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<input
+												type="text"
+												id="exitsure-sync-edit-location-name"
+												name="name"
+												class="regular-text"
+												value="<?php echo esc_attr( $edit_location['name'] ); ?>"
+												required
+											/>
+										</td>
+									</tr>
 
-						<?php submit_button( esc_html__( 'Add Location', 'exitsure-sync' ) ); ?>
-					</form>
-				</div>
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-edit-location-description">
+												<?php echo esc_html__( 'Description', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<textarea
+												id="exitsure-sync-edit-location-description"
+												name="description"
+												class="large-text"
+												rows="3"
+											><?php echo esc_textarea( $edit_location['description'] ); ?></textarea>
+										</td>
+									</tr>
+								</tbody>
+							</table>
+
+							<?php submit_button( esc_html__( 'Update Location', 'exitsure-sync' ) ); ?>
+						</form>
+					</div>
+				<?php endif; ?>
 
 				<div class="card">
 					<h2><?php echo esc_html__( 'Active Locations', 'exitsure-sync' ); ?></h2>
@@ -135,6 +199,9 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 										<td><?php echo esc_html( $location['description'] ); ?></td>
 										<td><?php echo esc_html( $location['created_at'] ); ?></td>
 										<td>
+											<a class="button button-small" href="<?php echo esc_url( $this->get_edit_location_url( $location ) ); ?>">
+												<?php echo esc_html__( 'Edit', 'exitsure-sync' ); ?>
+											</a>
 											<a class="button button-small" href="<?php echo esc_url( $this->get_archive_location_url( $location ) ); ?>">
 												<?php echo esc_html__( 'Archive', 'exitsure-sync' ); ?>
 											</a>
@@ -211,6 +278,46 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 		}
 
 		/**
+		 * Handles updating a location from the admin screen.
+		 *
+		 * @return void
+		 */
+		public function handle_update_location() {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( 'Sorry, you are not allowed to do that.', 'exitsure-sync' ) );
+			}
+
+			$location_id = isset( $_POST['location_id'] ) ? absint( wp_unslash( $_POST['location_id'] ) ) : 0;
+
+			if ( $location_id <= 0 ) {
+				$this->redirect_to_locations_page( 'missing_location' );
+			}
+
+			check_admin_referer( self::UPDATE_LOCATION_ACTION . '_' . $location_id, '_exitsure_sync_nonce' );
+
+			$location = $this->get_location( $location_id );
+
+			if ( empty( $location ) ) {
+				$this->redirect_to_locations_page( 'missing_location' );
+			}
+
+			$name        = isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '';
+			$description = isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '';
+
+			if ( '' === $name ) {
+				$this->redirect_to_locations_page( 'missing_name' );
+			}
+
+			$updated = $this->update_location( $location_id, $name, $description );
+
+			if ( ! $updated ) {
+				$this->redirect_to_locations_page( 'update_failed' );
+			}
+
+			$this->redirect_to_locations_page( 'updated' );
+		}
+		
+		/**
 		 * Renders an admin notice when needed.
 		 *
 		 * @return void
@@ -224,6 +331,12 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 
 			if ( 'created' === $status ) {
 				$this->render_notice( esc_html__( 'Location created successfully.', 'exitsure-sync' ), 'success' );
+
+				return;
+			}
+
+			if ( 'updated' === $status ) {
+				$this->render_notice( esc_html__( 'Location updated successfully.', 'exitsure-sync' ), 'success' );
 
 				return;
 			}
@@ -248,6 +361,12 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 
 			if ( 'archive_failed' === $status ) {
 				$this->render_notice( esc_html__( 'Location could not be archived.', 'exitsure-sync' ), 'error' );
+
+				return;
+			}
+
+			if ( 'update_failed' === $status ) {
+				$this->render_notice( esc_html__( 'Location could not be updated.', 'exitsure-sync' ), 'error' );
 
 				return;
 			}
@@ -454,6 +573,79 @@ if ( ! class_exists( 'ExitSure_Sync_Locations_Page' ) ) {
 				),
 				self::ARCHIVE_LOCATION_ACTION . '_' . $location_id,
 				'_exitsure_sync_nonce'
+			);
+		}
+
+		/**
+		 * Gets the location currently being edited.
+		 *
+		 * @return array|null
+		 */
+		private function get_edit_location() {
+			$location_id = isset( $_GET['edit_location_id'] ) ? absint( wp_unslash( $_GET['edit_location_id'] ) ) : 0;
+
+			if ( $location_id <= 0 ) {
+				return null;
+			}
+
+			return $this->get_location( $location_id );
+		}
+
+		/**
+		 * Updates a location.
+		 *
+		 * @param int    $location_id Location ID.
+		 * @param string $name        Location name.
+		 * @param string $description Location description.
+		 *
+		 * @return bool
+		 */
+		private function update_location( $location_id, $name, $description ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'locations' );
+
+			if ( '' === $table ) {
+				return false;
+			}
+
+			$updated = $wpdb->update(
+				$table,
+				array(
+					'name'        => $name,
+					'description' => $description,
+					'updated_at'  => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => absint( $location_id ),
+				),
+				array(
+					'%s',
+					'%s',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			return false !== $updated;
+		}
+
+		/**
+		 * Gets the edit location URL.
+		 *
+		 * @param array $location Location row.
+		 *
+		 * @return string
+		 */
+		private function get_edit_location_url( $location ) {
+			return add_query_arg(
+				array(
+					'page'             => self::MENU_SLUG,
+					'edit_location_id' => absint( $location['id'] ),
+				),
+				admin_url( 'admin.php' )
 			);
 		}
 	}
