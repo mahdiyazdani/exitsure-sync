@@ -32,6 +32,38 @@ if ( ! defined( 'EXITSURE_SYNC_URL' ) ) {
 }
 
 /**
+ * Loads the plugin activator.
+ *
+ * @return void
+ */
+function exitsure_sync_load_activator() {
+	$activator_file = EXITSURE_SYNC_PATH . 'includes/class-activator.php';
+
+	if ( ! file_exists( $activator_file ) ) {
+		return;
+	}
+
+	require_once $activator_file;
+}
+
+/**
+ * Runs plugin activation tasks.
+ *
+ * @return void
+ */
+function exitsure_sync_activate() {
+	exitsure_sync_load_activator();
+
+	if ( ! class_exists( 'ExitSure_Sync_Activator' ) ) {
+		return;
+	}
+
+	ExitSure_Sync_Activator::activate();
+}
+
+register_activation_hook( EXITSURE_SYNC_FILE, 'exitsure_sync_activate' );
+
+/**
  * Loads the plugin.
  *
  * @return void
