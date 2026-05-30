@@ -67,7 +67,7 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		 */
 		public function init() {
 			$this->load_dependencies();
-				
+
 			add_action( 'init', array( $this, 'load_textdomain' ) );
 			add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
 		}
