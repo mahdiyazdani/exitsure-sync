@@ -116,6 +116,67 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 					),
 				)
 			);
+
+			register_rest_route(
+				self::NAMESPACE,
+				'/locations/(?P<location_id>[\d]+)/tasks',
+				array(
+					'args' => array(
+						'location_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => array( $this, 'get_location_tasks' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'type' => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_key',
+								'validate_callback' => array( $this, 'validate_task_type' ),
+							),
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::CREATABLE,
+						'callback'            => array( $this, 'create_location_task' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'type'        => array(
+								'required'          => true,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_key',
+								'validate_callback' => array( $this, 'validate_task_type' ),
+							),
+							'title'       => array(
+								'required'          => true,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_text_field',
+								'validate_callback' => array( $this, 'validate_required_string' ),
+							),
+							'description' => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_textarea_field',
+							),
+							'is_required' => array(
+								'required'          => false,
+								'type'              => 'boolean',
+								'sanitize_callback' => 'rest_sanitize_boolean',
+							),
+							'sort_order'  => array(
+								'required'          => false,
+								'type'              => 'integer',
+								'sanitize_callback' => 'absint',
+							),
+						),
+					),
+				)
+			);
 		}
 
 		/**
@@ -136,6 +197,22 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 		 */
 		public function validate_required_string( $value ) {
 			return is_string( $value ) && '' !== trim( $value );
+		}
+
+
+		/**
+		 * Validates a task type.
+		 *
+		 * @param mixed $value Value to validate.
+		 *
+		 * @return bool
+		 */
+		public function validate_task_type( $value ) {
+			if ( ! is_string( $value ) ) {
+				return false;
+			}
+
+			return in_array( $value, array( 'enter', 'leave' ), true );
 		}
 
 		/**
@@ -261,6 +338,330 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 		}
 
 		/**
+		 * Gets a single location.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function get_location( $request ) {
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			return rest_ensure_response( $this->prepare_location_for_response( $location ) );
+		}
+
+		/**
+		 * Updates a location.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function update_location( $request ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'locations' );
+
+			if ( '' === $table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_locations_table',
+					esc_html__( 'Locations table could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			$data    = array();
+			$formats = array();
+
+			if ( $request->has_param( 'name' ) ) {
+				$data['name'] = (string) $request->get_param( 'name' );
+				$formats[]    = '%s';
+			}
+
+			if ( $request->has_param( 'description' ) ) {
+				$data['description'] = (string) $request->get_param( 'description' );
+				$formats[]           = '%s';
+			}
+
+			if ( empty( $data ) ) {
+				return rest_ensure_response( $this->prepare_location_for_response( $location ) );
+			}
+
+			$data['updated_at'] = ExitSure_Sync_DB::get_current_datetime();
+			$formats[]          = '%s';
+
+			$updated = $wpdb->update(
+				$table,
+				$data,
+				array(
+					'id' => $location_id,
+				),
+				$formats,
+				array(
+					'%d',
+				)
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'exitsure_sync_location_update_failed',
+					esc_html__( 'Location could not be updated.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location = $this->get_location_by_id( $location_id );
+
+			return rest_ensure_response( $this->prepare_location_for_response( $location ) );
+		}
+
+		/**
+		 * Archives a location.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function archive_location( $request ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'locations' );
+
+			if ( '' === $table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_locations_table',
+					esc_html__( 'Locations table could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			$updated = $wpdb->update(
+				$table,
+				array(
+					'is_archived' => 1,
+					'updated_at'  => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => $location_id,
+				),
+				array(
+					'%d',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'exitsure_sync_location_archive_failed',
+					esc_html__( 'Location could not be archived.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location = $this->get_location_by_id( $location_id );
+
+			return rest_ensure_response( $this->prepare_location_for_response( $location ) );
+		}
+
+		/**
+		 * Gets task templates for a location.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function get_location_tasks( $request ) {
+			global $wpdb;
+
+			$tasks_table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $tasks_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_tasks_table',
+					esc_html__( 'Tasks table could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			$type = (string) $request->get_param( 'type' );
+
+			if ( '' !== $type ) {
+				$tasks = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$tasks_table} WHERE location_id = %d AND type = %s AND is_enabled = %d ORDER BY sort_order ASC, id ASC",
+						$location_id,
+						$type,
+						1
+					),
+					ARRAY_A
+				);
+
+				return rest_ensure_response(
+					array_map(
+						array( $this, 'prepare_task_template_for_response' ),
+						$tasks
+					)
+				);
+			}
+
+			$tasks = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$tasks_table} WHERE location_id = %d AND is_enabled = %d ORDER BY type ASC, sort_order ASC, id ASC",
+					$location_id,
+					1
+				),
+				ARRAY_A
+			);
+
+			return rest_ensure_response(
+				array_map(
+					array( $this, 'prepare_task_template_for_response' ),
+					$tasks
+				)
+			);
+		}
+
+		/**
+		 * Creates a task template for a location.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function create_location_task( $request ) {
+			global $wpdb;
+
+			$tasks_table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $tasks_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_tasks_table',
+					esc_html__( 'Tasks table could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( ! empty( $location['is_archived'] ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_archived',
+					esc_html__( 'Tasks cannot be added to an archived location.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$datetime    = ExitSure_Sync_DB::get_current_datetime();
+			$is_required = $request->has_param( 'is_required' ) ? rest_sanitize_boolean( $request->get_param( 'is_required' ) ) : true;
+			$sort_order  = $request->has_param( 'sort_order' ) ? absint( $request->get_param( 'sort_order' ) ) : 0;
+
+			$inserted = $wpdb->insert(
+				$tasks_table,
+				array(
+					'uuid'        => ExitSure_Sync_DB::get_uuid(),
+					'location_id' => $location_id,
+					'type'        => (string) $request->get_param( 'type' ),
+					'title'       => (string) $request->get_param( 'title' ),
+					'description' => (string) $request->get_param( 'description' ),
+					'is_required' => $is_required ? 1 : 0,
+					'is_enabled'  => 1,
+					'sort_order'  => $sort_order,
+					'created_at'  => $datetime,
+					'updated_at'  => $datetime,
+				),
+				array(
+					'%s',
+					'%d',
+					'%s',
+					'%s',
+					'%s',
+					'%d',
+					'%d',
+					'%d',
+					'%s',
+					'%s',
+				)
+			);
+
+			if ( false === $inserted ) {
+				return new WP_Error(
+					'exitsure_sync_task_create_failed',
+					esc_html__( 'Task could not be created.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$task = $this->get_task_template_by_id( (int) $wpdb->insert_id );
+
+			if ( empty( $task ) ) {
+				return new WP_Error(
+					'exitsure_sync_task_not_found',
+					esc_html__( 'Created task could not be loaded.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			return new WP_REST_Response(
+				$this->prepare_task_template_for_response( $task ),
+				201
+			);
+		}
+
+		/**
 		 * Gets a location by ID.
 		 *
 		 * @param int $location_id Location ID.
@@ -307,6 +708,60 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 				'is_archived' => (bool) $location['is_archived'],
 				'created_at'  => $location['created_at'],
 				'updated_at'  => $location['updated_at'],
+			);
+		}
+
+		/**
+		 * Gets a task template by ID.
+		 *
+		 * @param int $task_id Task template ID.
+		 *
+		 * @return array|null
+		 */
+		private function get_task_template_by_id( $task_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $table ) {
+				return null;
+			}
+
+			$task = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE id = %d",
+					$task_id
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $task ) ) {
+				return null;
+			}
+
+			return $task;
+		}
+
+		/**
+		 * Prepares a task template for REST API response.
+		 *
+		 * @param array $task Task template row.
+		 *
+		 * @return array
+		 */
+		private function prepare_task_template_for_response( $task ) {
+			return array(
+				'id'          => absint( $task['id'] ),
+				'uuid'        => $task['uuid'],
+				'location_id' => absint( $task['location_id'] ),
+				'type'        => $task['type'],
+				'title'       => $task['title'],
+				'description' => $task['description'],
+				'is_required' => (bool) $task['is_required'],
+				'is_enabled'  => (bool) $task['is_enabled'],
+				'sort_order'  => absint( $task['sort_order'] ),
+				'created_at'  => $task['created_at'],
+				'updated_at'  => $task['updated_at'],
 			);
 		}
 	}
