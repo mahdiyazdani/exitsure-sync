@@ -28,12 +28,20 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 		const ADD_TASK_ACTION = 'exitsure_sync_add_task_template';
 
 		/**
+		 * Disable task action name.
+		 *
+		 * @var string
+		 */
+		const DISABLE_TASK_ACTION = 'exitsure_sync_disable_task_template';
+
+		/**
 		 * Registers page hooks.
 		 *
 		 * @return void
 		 */
 		public function init() {
 			add_action( 'admin_post_' . self::ADD_TASK_ACTION, array( $this, 'handle_add_task' ) );
+			add_action( 'admin_post_' . self::DISABLE_TASK_ACTION, array( $this, 'handle_disable_task' ) );
 		}
 
 		/**
@@ -199,6 +207,7 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 										<th><?php echo esc_html__( 'Required', 'exitsure-sync' ); ?></th>
 										<th><?php echo esc_html__( 'Sort Order', 'exitsure-sync' ); ?></th>
 										<th><?php echo esc_html__( 'Created', 'exitsure-sync' ); ?></th>
+										<th><?php echo esc_html__( 'Actions', 'exitsure-sync' ); ?></th>
 									</tr>
 								</thead>
 								<tbody>
@@ -216,6 +225,11 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 											</td>
 											<td><?php echo esc_html( absint( $task['sort_order'] ) ); ?></td>
 											<td><?php echo esc_html( $task['created_at'] ); ?></td>
+											<td>
+												<a class="button button-small" href="<?php echo esc_url( $this->get_disable_task_url( $task ) ); ?>">
+													<?php echo esc_html__( 'Disable', 'exitsure-sync' ); ?>
+												</a>
+											</td>
 										</tr>
 									<?php endforeach; ?>
 								</tbody>
@@ -269,6 +283,41 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 			}
 
 			$this->redirect_to_tasks_page( 'created', $location_id );
+		}
+
+		/**
+		 * Handles disabling a task template from the admin screen.
+		 *
+		 * @return void
+		 */
+		public function handle_disable_task() {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( 'Sorry, you are not allowed to do that.', 'exitsure-sync' ) );
+			}
+
+			$task_id     = isset( $_GET['task_id'] ) ? absint( wp_unslash( $_GET['task_id'] ) ) : 0;
+			$location_id = isset( $_GET['location_id'] ) ? absint( wp_unslash( $_GET['location_id'] ) ) : 0;
+
+			if ( $task_id <= 0 ) {
+				$this->redirect_to_tasks_page( 'missing_task', $location_id );
+			}
+
+			check_admin_referer( self::DISABLE_TASK_ACTION . '_' . $task_id, '_exitsure_sync_nonce' );
+
+			$task = $this->get_task( $task_id );
+
+			if ( empty( $task ) ) {
+				$this->redirect_to_tasks_page( 'missing_task', $location_id );
+			}
+
+			$location_id = absint( $task['location_id'] );
+			$disabled    = $this->disable_task( $task_id );
+
+			if ( ! $disabled ) {
+				$this->redirect_to_tasks_page( 'disable_failed', $location_id );
+			}
+
+			$this->redirect_to_tasks_page( 'disabled', $location_id );
 		}
 
 		/**
@@ -469,6 +518,12 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 				return;
 			}
 
+			if ( 'disabled' === $status ) {
+				$this->render_notice( esc_html__( 'Task disabled successfully.', 'exitsure-sync' ), 'success' );
+
+				return;
+			}
+
 			if ( 'missing_location' === $status ) {
 				$this->render_notice( esc_html__( 'A valid location is required.', 'exitsure-sync' ), 'error' );
 
@@ -483,6 +538,18 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 
 			if ( 'missing_title' === $status ) {
 				$this->render_notice( esc_html__( 'Task title is required.', 'exitsure-sync' ), 'error' );
+
+				return;
+			}
+
+			if ( 'missing_task' === $status ) {
+				$this->render_notice( esc_html__( 'Task could not be found.', 'exitsure-sync' ), 'error' );
+
+				return;
+			}
+
+			if ( 'disable_failed' === $status ) {
+				$this->render_notice( esc_html__( 'Task could not be disabled.', 'exitsure-sync' ), 'error' );
 
 				return;
 			}
@@ -529,6 +596,99 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 			);
 
 			exit;
+		}
+
+		/**
+		 * Gets a task template by ID.
+		 *
+		 * @param int $task_id Task template ID.
+		 *
+		 * @return array|null
+		 */
+		private function get_task( $task_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $table ) {
+				return null;
+			}
+
+			$task = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE id = %d AND is_enabled = %d",
+					absint( $task_id ),
+					1
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $task ) ) {
+				return null;
+			}
+
+			return $task;
+		}
+
+		/**
+		 * Disables a task template.
+		 *
+		 * @param int $task_id Task template ID.
+		 *
+		 * @return bool
+		 */
+		private function disable_task( $task_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $table ) {
+				return false;
+			}
+
+			$updated = $wpdb->update(
+				$table,
+				array(
+					'is_enabled' => 0,
+					'updated_at' => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => absint( $task_id ),
+				),
+				array(
+					'%d',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			return false !== $updated;
+		}
+
+		/**
+		 * Gets the disable task URL.
+		 *
+		 * @param array $task Task row.
+		 *
+		 * @return string
+		 */
+		private function get_disable_task_url( $task ) {
+			$task_id = absint( $task['id'] );
+
+			return wp_nonce_url(
+				add_query_arg(
+					array(
+						'action'      => self::DISABLE_TASK_ACTION,
+						'task_id'     => $task_id,
+						'location_id' => absint( $task['location_id'] ),
+					),
+					admin_url( 'admin-post.php' )
+				),
+				self::DISABLE_TASK_ACTION . '_' . $task_id,
+				'_exitsure_sync_nonce'
+			);
 		}
 	}
 }
