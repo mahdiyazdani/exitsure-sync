@@ -79,6 +79,7 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 		 */
 		private function load_dependencies() {
 			$files = array(
+				EXITSURE_SYNC_PATH . 'includes/class-db.php',
 				EXITSURE_SYNC_PATH . 'includes/class-rest-controller.php',
 			);
 
