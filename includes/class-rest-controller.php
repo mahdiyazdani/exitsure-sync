@@ -74,6 +74,48 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 					),
 				)
 			);
+
+			register_rest_route(
+				self::NAMESPACE,
+				'/locations/(?P<location_id>[\d]+)',
+				array(
+					'args' => array(
+						'location_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => array( $this, 'get_location' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+					),
+					array(
+						'methods'             => WP_REST_Server::EDITABLE,
+						'callback'            => array( $this, 'update_location' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'name'        => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_text_field',
+								'validate_callback' => array( $this, 'validate_required_string' ),
+							),
+							'description' => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_textarea_field',
+							),
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::DELETABLE,
+						'callback'            => array( $this, 'archive_location' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+					),
+				)
+			);
 		}
 
 		/**
