@@ -35,6 +35,13 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 		const DISABLE_TASK_ACTION = 'exitsure_sync_disable_task_template';
 
 		/**
+		 * Update task action name.
+		 *
+		 * @var string
+		 */
+		const UPDATE_TASK_ACTION = 'exitsure_sync_update_task_template';
+
+		/**
 		 * Registers page hooks.
 		 *
 		 * @return void
@@ -42,6 +49,7 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 		public function init() {
 			add_action( 'admin_post_' . self::ADD_TASK_ACTION, array( $this, 'handle_add_task' ) );
 			add_action( 'admin_post_' . self::DISABLE_TASK_ACTION, array( $this, 'handle_disable_task' ) );
+			add_action( 'admin_post_' . self::UPDATE_TASK_ACTION, array( $this, 'handle_update_task' ) );
 		}
 
 		/**
@@ -57,12 +65,120 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 			$locations            = $this->get_locations();
 			$selected_location_id = $this->get_selected_location_id( $locations );
 			$tasks                = $selected_location_id > 0 ? $this->get_tasks( $selected_location_id ) : array();
-
+			$edit_task            = $this->get_edit_task();
+			
 			?>
 			<div class="wrap">
 				<h1><?php echo esc_html__( 'Tasks', 'exitsure-sync' ); ?></h1>
 
 				<?php $this->render_admin_notice(); ?>
+
+				<?php if ( ! empty( $edit_task ) ) : ?>
+					<div class="card">
+						<h2><?php echo esc_html__( 'Edit Task', 'exitsure-sync' ); ?></h2>
+
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="<?php echo esc_attr( self::UPDATE_TASK_ACTION ); ?>" />
+							<input type="hidden" name="task_id" value="<?php echo esc_attr( absint( $edit_task['id'] ) ); ?>" />
+							<input type="hidden" name="location_id" value="<?php echo esc_attr( absint( $edit_task['location_id'] ) ); ?>" />
+
+							<?php wp_nonce_field( self::UPDATE_TASK_ACTION . '_' . absint( $edit_task['id'] ), '_exitsure_sync_nonce' ); ?>
+
+							<table class="form-table" role="presentation">
+								<tbody>
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-edit-task-type">
+												<?php echo esc_html__( 'Type', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<select id="exitsure-sync-edit-task-type" name="type" required>
+												<option value="leave" <?php selected( $edit_task['type'], 'leave' ); ?>>
+													<?php echo esc_html__( 'Leave', 'exitsure-sync' ); ?>
+												</option>
+												<option value="enter" <?php selected( $edit_task['type'], 'enter' ); ?>>
+													<?php echo esc_html__( 'Enter', 'exitsure-sync' ); ?>
+												</option>
+											</select>
+										</td>
+									</tr>
+
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-edit-task-title">
+												<?php echo esc_html__( 'Title', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<input
+												type="text"
+												id="exitsure-sync-edit-task-title"
+												name="title"
+												class="regular-text"
+												value="<?php echo esc_attr( $edit_task['title'] ); ?>"
+												required
+											/>
+										</td>
+									</tr>
+
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-edit-task-description">
+												<?php echo esc_html__( 'Description', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<textarea
+												id="exitsure-sync-edit-task-description"
+												name="description"
+												class="large-text"
+												rows="3"
+											><?php echo esc_textarea( $edit_task['description'] ); ?></textarea>
+										</td>
+									</tr>
+
+									<tr>
+										<th scope="row">
+											<?php echo esc_html__( 'Required', 'exitsure-sync' ); ?>
+										</th>
+										<td>
+											<label>
+												<input
+													type="checkbox"
+													name="is_required"
+													value="1"
+													<?php checked( ! empty( $edit_task['is_required'] ) ); ?>
+												/>
+												<?php echo esc_html__( 'This task must be checked before the checklist can be completed.', 'exitsure-sync' ); ?>
+											</label>
+										</td>
+									</tr>
+
+									<tr>
+										<th scope="row">
+											<label for="exitsure-sync-edit-task-sort-order">
+												<?php echo esc_html__( 'Sort Order', 'exitsure-sync' ); ?>
+											</label>
+										</th>
+										<td>
+											<input
+												type="number"
+												id="exitsure-sync-edit-task-sort-order"
+												name="sort_order"
+												value="<?php echo esc_attr( absint( $edit_task['sort_order'] ) ); ?>"
+												min="0"
+												step="1"
+											/>
+										</td>
+									</tr>
+								</tbody>
+							</table>
+
+							<?php submit_button( esc_html__( 'Update Task', 'exitsure-sync' ) ); ?>
+						</form>
+					</div>
+				<?php endif; ?>
 
 				<?php if ( empty( $locations ) ) : ?>
 					<div class="card">
@@ -77,6 +193,7 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 						</a>
 					</div>
 				<?php else : ?>
+					<?php if ( empty( $edit_task ) ) : ?>
 					<div class="card">
 						<h2><?php echo esc_html__( 'Select Location', 'exitsure-sync' ); ?></h2>
 
@@ -191,6 +308,7 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 							<?php submit_button( esc_html__( 'Add Task', 'exitsure-sync' ) ); ?>
 						</form>
 					</div>
+					<?php endif; ?>
 
 					<div class="card">
 						<h2><?php echo esc_html__( 'Active Tasks', 'exitsure-sync' ); ?></h2>
@@ -226,6 +344,9 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 											<td><?php echo esc_html( absint( $task['sort_order'] ) ); ?></td>
 											<td><?php echo esc_html( $task['created_at'] ); ?></td>
 											<td>
+												<a class="button button-small" href="<?php echo esc_url( $this->get_edit_task_url( $task ) ); ?>">
+													<?php echo esc_html__( 'Edit', 'exitsure-sync' ); ?>
+												</a>
 												<a class="button button-small" href="<?php echo esc_url( $this->get_disable_task_url( $task ) ); ?>">
 													<?php echo esc_html__( 'Disable', 'exitsure-sync' ); ?>
 												</a>
@@ -319,6 +440,55 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 
 			$this->redirect_to_tasks_page( 'disabled', $location_id );
 		}
+
+		/**
+		 * Handles updating a task template from the admin screen.
+		 *
+		 * @return void
+		 */
+		public function handle_update_task() {
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_die( esc_html__( 'Sorry, you are not allowed to do that.', 'exitsure-sync' ) );
+			}
+
+			$task_id     = isset( $_POST['task_id'] ) ? absint( wp_unslash( $_POST['task_id'] ) ) : 0;
+			$location_id = isset( $_POST['location_id'] ) ? absint( wp_unslash( $_POST['location_id'] ) ) : 0;
+
+			if ( $task_id <= 0 ) {
+				$this->redirect_to_tasks_page( 'missing_task', $location_id );
+			}
+
+			check_admin_referer( self::UPDATE_TASK_ACTION . '_' . $task_id, '_exitsure_sync_nonce' );
+
+			$task = $this->get_task( $task_id );
+
+			if ( empty( $task ) ) {
+				$this->redirect_to_tasks_page( 'missing_task', $location_id );
+			}
+
+			$location_id = absint( $task['location_id'] );
+			$type        = isset( $_POST['type'] ) ? sanitize_key( wp_unslash( $_POST['type'] ) ) : '';
+			$title       = isset( $_POST['title'] ) ? sanitize_text_field( wp_unslash( $_POST['title'] ) ) : '';
+			$description = isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '';
+			$is_required = isset( $_POST['is_required'] ) ? 1 : 0;
+			$sort_order  = isset( $_POST['sort_order'] ) ? absint( wp_unslash( $_POST['sort_order'] ) ) : 0;
+
+			if ( ! $this->is_valid_task_type( $type ) ) {
+				$this->redirect_to_tasks_page( 'invalid_type', $location_id );
+			}
+
+			if ( '' === $title ) {
+				$this->redirect_to_tasks_page( 'missing_title', $location_id );
+			}
+
+			$updated = $this->update_task( $task_id, $type, $title, $description, $is_required, $sort_order );
+
+			if ( ! $updated ) {
+				$this->redirect_to_tasks_page( 'update_failed', $location_id );
+			}
+
+			$this->redirect_to_tasks_page( 'updated', $location_id );
+	}
 
 		/**
 		 * Gets active locations.
@@ -524,6 +694,12 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 				return;
 			}
 
+			if ( 'updated' === $status ) {
+				$this->render_notice( esc_html__( 'Task updated successfully.', 'exitsure-sync' ), 'success' );
+
+				return;
+			}
+
 			if ( 'missing_location' === $status ) {
 				$this->render_notice( esc_html__( 'A valid location is required.', 'exitsure-sync' ), 'error' );
 
@@ -550,6 +726,12 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 
 			if ( 'disable_failed' === $status ) {
 				$this->render_notice( esc_html__( 'Task could not be disabled.', 'exitsure-sync' ), 'error' );
+
+				return;
+			}
+
+			if ( 'update_failed' === $status ) {
+				$this->render_notice( esc_html__( 'Task could not be updated.', 'exitsure-sync' ), 'error' );
 
 				return;
 			}
@@ -688,6 +870,89 @@ if ( ! class_exists( 'ExitSure_Sync_Task_Templates_Page' ) ) {
 				),
 				self::DISABLE_TASK_ACTION . '_' . $task_id,
 				'_exitsure_sync_nonce'
+			);
+		}
+
+		/**
+		 * Gets the task currently being edited.
+		 *
+		 * @return array|null
+		 */
+		private function get_edit_task() {
+			$task_id = isset( $_GET['edit_task_id'] ) ? absint( wp_unslash( $_GET['edit_task_id'] ) ) : 0;
+
+			if ( $task_id <= 0 ) {
+				return null;
+			}
+
+			return $this->get_task( $task_id );
+		}
+
+		/**
+		 * Updates a task template.
+		 *
+		 * @param int    $task_id     Task template ID.
+		 * @param string $type        Task type.
+		 * @param string $title       Task title.
+		 * @param string $description Task description.
+		 * @param int    $is_required Whether the task is required.
+		 * @param int    $sort_order  Sort order.
+		 *
+		 * @return bool
+		 */
+		private function update_task( $task_id, $type, $title, $description, $is_required, $sort_order ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $table ) {
+				return false;
+			}
+
+			$updated = $wpdb->update(
+				$table,
+				array(
+					'type'        => $type,
+					'title'       => $title,
+					'description' => $description,
+					'is_required' => $is_required ? 1 : 0,
+					'sort_order'  => absint( $sort_order ),
+					'updated_at'  => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => absint( $task_id ),
+				),
+				array(
+					'%s',
+					'%s',
+					'%s',
+					'%d',
+					'%d',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			return false !== $updated;
+		}
+
+		/**
+		 * Gets the edit task URL.
+		 *
+		 * @param array $task Task row.
+		 *
+		 * @return string
+		 */
+		private function get_edit_task_url( $task ) {
+			return add_query_arg(
+				array(
+					'page'         => self::MENU_SLUG,
+					'location_id'  => absint( $task['location_id'] ),
+					'edit_task_id' => absint( $task['id'] ),
+				),
+				admin_url( 'admin.php' )
 			);
 		}
 	}
