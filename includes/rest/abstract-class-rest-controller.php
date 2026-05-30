@@ -63,6 +63,21 @@ if ( ! class_exists( 'ExitSure_Sync_Abstract_REST_Controller' ) ) {
 		}
 
 		/**
+		 * Validates a UUID value.
+		 *
+		 * @param mixed $value Value to validate.
+		 *
+		 * @return bool
+		 */
+		public function validate_uuid( $value ) {
+			if ( ! is_string( $value ) ) {
+				return false;
+			}
+
+			return wp_is_uuid( $value );
+		}
+
+		/**
 		 * Gets a location by ID.
 		 *
 		 * @param int $location_id Location ID.
