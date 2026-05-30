@@ -54,6 +54,33 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 
 			register_rest_route(
 				self::NAMESPACE,
+				'/locations/(?P<location_id>[\d]+)/checklists/draft',
+				array(
+					'args' => array(
+						'location_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => array( $this, 'get_draft_checklist_run' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'type' => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_key',
+								'validate_callback' => array( $this, 'validate_task_type' ),
+							),
+						),
+					),
+				)
+			);
+
+			register_rest_route(
+				self::NAMESPACE,
 				'/checklists/(?P<run_id>[\d]+)',
 				array(
 					'args' => array(
@@ -284,6 +311,73 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 				$this->prepare_checklist_run_for_response( $run ),
 				201
 			);
+		}
+
+		/**
+		 * Gets the latest draft checklist run for a location.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function get_draft_checklist_run( $request ) {
+			global $wpdb;
+
+			$runs_table = ExitSure_Sync_DB::get_table_name( 'runs' );
+
+			if ( '' === $runs_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_checklist_tables',
+					esc_html__( 'Checklist tables could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			$type = (string) $request->get_param( 'type' );
+
+			if ( '' !== $type ) {
+				$run = $wpdb->get_row(
+					$wpdb->prepare(
+						"SELECT * FROM {$runs_table} WHERE location_id = %d AND type = %s AND status = %s ORDER BY updated_at DESC, id DESC LIMIT 1",
+						$location_id,
+						$type,
+						'draft'
+					),
+					ARRAY_A
+				);
+
+				if ( empty( $run ) ) {
+					return rest_ensure_response( null );
+				}
+
+				return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
+			}
+
+			$run = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$runs_table} WHERE location_id = %d AND status = %s ORDER BY updated_at DESC, id DESC LIMIT 1",
+					$location_id,
+					'draft'
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $run ) ) {
+				return rest_ensure_response( null );
+			}
+
+			return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
 		}
 
 		/**
