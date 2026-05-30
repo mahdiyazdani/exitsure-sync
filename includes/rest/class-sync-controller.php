@@ -93,6 +93,10 @@ if ( ! class_exists( 'ExitSure_Sync_Sync_REST_Controller' ) ) {
 					'enter' => $this->get_latest_checklist_run_summary( $location_id, 'enter' ),
 					'leave' => $this->get_latest_checklist_run_summary( $location_id, 'leave' ),
 				),
+				'draft'       => array(
+					'enter' => $this->get_draft_checklist_run_summary( $location_id, 'enter' ),
+					'leave' => $this->get_draft_checklist_run_summary( $location_id, 'leave' ),
+				),
 			);
 		}
 
@@ -164,6 +168,51 @@ if ( ! class_exists( 'ExitSure_Sync_Sync_REST_Controller' ) ) {
 				return null;
 			}
 
+			return $this->prepare_checklist_run_summary_for_response( $run );
+		}
+
+		/**
+		 * Gets latest draft checklist run summary.
+		 *
+		 * @param int    $location_id Location ID.
+		 * @param string $type        Checklist type.
+		 *
+		 * @return array|null
+		 */
+		private function get_draft_checklist_run_summary( $location_id, $type ) {
+			global $wpdb;
+
+			$runs_table = ExitSure_Sync_DB::get_table_name( 'runs' );
+
+			if ( '' === $runs_table ) {
+				return null;
+			}
+
+			$run = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$runs_table} WHERE location_id = %d AND type = %s AND status = %s ORDER BY updated_at DESC, id DESC LIMIT 1",
+					$location_id,
+					$type,
+					'draft'
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $run ) ) {
+				return null;
+			}
+
+			return $this->prepare_checklist_run_summary_for_response( $run );
+		}
+
+		/**
+		 * Prepares a checklist run summary for REST API response.
+		 *
+		 * @param array $run Checklist run row.
+		 *
+		 * @return array
+		 */
+		private function prepare_checklist_run_summary_for_response( $run ) {
 			return array(
 				'id'           => absint( $run['id'] ),
 				'uuid'         => $run['uuid'],
@@ -176,6 +225,64 @@ if ( ! class_exists( 'ExitSure_Sync_Sync_REST_Controller' ) ) {
 				'completed_at' => $run['completed_at'],
 				'created_at'   => $run['created_at'],
 				'updated_at'   => $run['updated_at'],
+				'items'        => array_map(
+					array( $this, 'prepare_checklist_run_item_for_response' ),
+					$this->get_checklist_run_items( absint( $run['id'] ) )
+				),
+			);
+		}
+
+		/**
+		 * Gets checklist run items.
+		 *
+		 * @param int $run_id Checklist run ID.
+		 *
+		 * @return array
+		 */
+		private function get_checklist_run_items( $run_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'run_items' );
+
+			if ( '' === $table ) {
+				return array();
+			}
+
+			$items = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE run_id = %d ORDER BY id ASC",
+					$run_id
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $items ) ) {
+				return array();
+			}
+
+			return $items;
+		}
+
+		/**
+		 * Prepares a checklist run item for REST API response.
+		 *
+		 * @param array $item Checklist run item row.
+		 *
+		 * @return array
+		 */
+		private function prepare_checklist_run_item_for_response( $item ) {
+			return array(
+				'id'                   => absint( $item['id'] ),
+				'uuid'                 => $item['uuid'],
+				'run_id'               => absint( $item['run_id'] ),
+				'task_template_id'     => absint( $item['task_template_id'] ),
+				'title_snapshot'       => $item['title_snapshot'],
+				'is_required_snapshot' => (bool) $item['is_required_snapshot'],
+				'is_checked'           => (bool) $item['is_checked'],
+				'checked_at'           => $item['checked_at'],
+				'note'                 => $item['note'],
+				'created_at'           => $item['created_at'],
+				'updated_at'           => $item['updated_at'],
 			);
 		}
 	}
