@@ -83,6 +83,7 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 				EXITSURE_SYNC_PATH . 'includes/rest/abstract-class-rest-controller.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/class-health-controller.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/class-locations-controller.php',
+				EXITSURE_SYNC_PATH . 'includes/rest/class-history-controller.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/class-task-templates-controller.php',
 				EXITSURE_SYNC_PATH . 'includes/rest/class-checklist-runs-controller.php',
 			);
@@ -105,6 +106,7 @@ if ( ! class_exists( 'ExitSure_Sync_Plugin' ) ) {
 			$controllers = array(
 				'ExitSure_Sync_Health_REST_Controller',
 				'ExitSure_Sync_Locations_REST_Controller',
+				'ExitSure_Sync_History_REST_Controller',
 				'ExitSure_Sync_Task_Templates_REST_Controller',
 				'ExitSure_Sync_Checklist_Runs_REST_Controller',
 			);
