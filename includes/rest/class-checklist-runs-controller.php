@@ -51,6 +51,37 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 					),
 				)
 			);
+
+			register_rest_route(
+				self::NAMESPACE,
+				'/checklists/(?P<run_id>[\d]+)/complete',
+				array(
+					'args' => array(
+						'run_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::CREATABLE,
+						'callback'            => array( $this, 'complete_checklist_run' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'checked_item_ids' => array(
+								'required'          => true,
+								'type'              => 'array',
+								'validate_callback' => array( $this, 'validate_positive_integer_array' ),
+							),
+							'note'             => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_textarea_field',
+							),
+						),
+					),
+				)
+			);
 		}
 
 		/**
@@ -208,6 +239,148 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 				$this->prepare_checklist_run_for_response( $run ),
 				201
 			);
+		}
+
+		/**
+		 * Completes a checklist run.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function complete_checklist_run( $request ) {
+			global $wpdb;
+
+			$runs_table      = ExitSure_Sync_DB::get_table_name( 'runs' );
+			$run_items_table = ExitSure_Sync_DB::get_table_name( 'run_items' );
+
+			if ( '' === $runs_table || '' === $run_items_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_checklist_tables',
+					esc_html__( 'Checklist tables could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$run_id = absint( $request->get_param( 'run_id' ) );
+			$run    = $this->get_checklist_run_by_id( $run_id );
+
+			if ( empty( $run ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_not_found',
+					esc_html__( 'Checklist run could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( 'completed' === $run['status'] ) {
+				return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
+			}
+
+			$items            = $this->get_checklist_run_items( $run_id );
+			$checked_item_ids = $this->normalize_id_array( $request->get_param( 'checked_item_ids' ) );
+
+			if ( empty( $items ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_items_not_found',
+					esc_html__( 'Checklist run items could not be found.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			foreach ( $items as $item ) {
+				if ( empty( $item['is_required_snapshot'] ) ) {
+					continue;
+				}
+
+				if ( in_array( absint( $item['id'] ), $checked_item_ids, true ) ) {
+					continue;
+				}
+
+				return new WP_Error(
+					'exitsure_sync_required_item_missing',
+					esc_html__( 'All required checklist items must be checked before completion.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$datetime = ExitSure_Sync_DB::get_current_datetime();
+
+			foreach ( $items as $item ) {
+				$is_checked = in_array( absint( $item['id'] ), $checked_item_ids, true );
+
+				$wpdb->update(
+					$run_items_table,
+					array(
+						'is_checked' => $is_checked ? 1 : 0,
+						'checked_at' => $is_checked ? $datetime : null,
+						'updated_at' => $datetime,
+					),
+					array(
+						'id' => absint( $item['id'] ),
+					),
+					array(
+						'%d',
+						'%s',
+						'%s',
+					),
+					array(
+						'%d',
+					)
+				);
+			}
+
+			$updated = $wpdb->update(
+				$runs_table,
+				array(
+					'status'       => 'completed',
+					'note'         => (string) $request->get_param( 'note' ),
+					'completed_at' => $datetime,
+					'updated_at'   => $datetime,
+				),
+				array(
+					'id' => $run_id,
+				),
+				array(
+					'%s',
+					'%s',
+					'%s',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_complete_failed',
+					esc_html__( 'Checklist run could not be completed.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$run = $this->get_checklist_run_by_id( $run_id );
+
+			return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
+		}
+
+		/**
+		 * Normalizes an array of IDs.
+		 *
+		 * @param mixed $ids Raw IDs.
+		 *
+		 * @return array
+		 */
+		private function normalize_id_array( $ids ) {
+			if ( ! is_array( $ids ) ) {
+				return array();
+			}
+
+			$ids = array_map( 'absint', $ids );
+			$ids = array_filter( $ids );
+
+			return array_values( array_unique( $ids ) );
 		}
 
 		/**

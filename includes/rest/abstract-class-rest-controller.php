@@ -78,6 +78,27 @@ if ( ! class_exists( 'ExitSure_Sync_Abstract_REST_Controller' ) ) {
 		}
 
 		/**
+		 * Validates an array of positive integer IDs.
+		 *
+		 * @param mixed $value Value to validate.
+		 *
+		 * @return bool
+		 */
+		public function validate_positive_integer_array( $value ) {
+			if ( ! is_array( $value ) ) {
+				return false;
+			}
+
+			foreach ( $value as $item ) {
+				if ( absint( $item ) <= 0 ) {
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		/**
 		 * Gets a location by ID.
 		 *
 		 * @param int $location_id Location ID.
