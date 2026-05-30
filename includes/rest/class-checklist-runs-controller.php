@@ -126,6 +126,32 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 
 			register_rest_route(
 				self::NAMESPACE,
+				'/checklists/(?P<run_id>[\d]+)/cancel',
+				array(
+					'args' => array(
+						'run_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::CREATABLE,
+						'callback'            => array( $this, 'cancel_checklist_run' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'note' => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_textarea_field',
+							),
+						),
+					),
+				)
+			);
+
+			register_rest_route(
+				self::NAMESPACE,
 				'/checklists/(?P<run_id>[\d]+)/complete',
 				array(
 					'args' => array(
@@ -488,6 +514,82 @@ if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
 					array(
 						'%d',
 					)
+				);
+			}
+
+			$run = $this->get_checklist_run_by_id( $run_id );
+
+			return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
+		}
+
+		/**
+		 * Cancels a draft checklist run.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function cancel_checklist_run( $request ) {
+			global $wpdb;
+
+			$runs_table = ExitSure_Sync_DB::get_table_name( 'runs' );
+
+			if ( '' === $runs_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_checklist_tables',
+					esc_html__( 'Checklist tables could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$run_id = absint( $request->get_param( 'run_id' ) );
+			$run    = $this->get_checklist_run_by_id( $run_id );
+
+			if ( empty( $run ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_not_found',
+					esc_html__( 'Checklist run could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( 'completed' === $run['status'] ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_completed',
+					esc_html__( 'Completed checklist runs cannot be cancelled.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			if ( 'cancelled' === $run['status'] ) {
+				return rest_ensure_response( $this->prepare_checklist_run_for_response( $run ) );
+			}
+
+			$updated = $wpdb->update(
+				$runs_table,
+				array(
+					'status'     => 'cancelled',
+					'note'       => (string) $request->get_param( 'note' ),
+					'updated_at' => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => $run_id,
+				),
+				array(
+					'%s',
+					'%s',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_cancel_failed',
+					esc_html__( 'Checklist run could not be cancelled.', 'exitsure-sync' ),
+					array( 'status' => 500 )
 				);
 			}
 
