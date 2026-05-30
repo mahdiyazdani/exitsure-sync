@@ -177,6 +177,69 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 					),
 				)
 			);
+
+			register_rest_route(
+				self::NAMESPACE,
+				'/tasks/(?P<task_id>[\d]+)',
+				array(
+					'args' => array(
+						'task_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::READABLE,
+						'callback'            => array( $this, 'get_task_template' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+					),
+					array(
+						'methods'             => WP_REST_Server::EDITABLE,
+						'callback'            => array( $this, 'update_task_template' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'type'        => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_key',
+								'validate_callback' => array( $this, 'validate_task_type' ),
+							),
+							'title'       => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_text_field',
+								'validate_callback' => array( $this, 'validate_required_string' ),
+							),
+							'description' => array(
+								'required'          => false,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_textarea_field',
+							),
+							'is_required' => array(
+								'required'          => false,
+								'type'              => 'boolean',
+								'sanitize_callback' => 'rest_sanitize_boolean',
+							),
+							'is_enabled'  => array(
+								'required'          => false,
+								'type'              => 'boolean',
+								'sanitize_callback' => 'rest_sanitize_boolean',
+							),
+							'sort_order'  => array(
+								'required'          => false,
+								'type'              => 'integer',
+								'sanitize_callback' => 'absint',
+							),
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::DELETABLE,
+						'callback'            => array( $this, 'disable_task_template' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+					),
+				)
+			);
 		}
 
 		/**
@@ -763,6 +826,186 @@ if ( ! class_exists( 'ExitSure_Sync_REST_Controller' ) ) {
 				'created_at'  => $task['created_at'],
 				'updated_at'  => $task['updated_at'],
 			);
+		}
+
+		/**
+		 * Gets a single task template.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function get_task_template( $request ) {
+			$task_id = absint( $request->get_param( 'task_id' ) );
+			$task    = $this->get_task_template_by_id( $task_id );
+
+			if ( empty( $task ) ) {
+				return new WP_Error(
+					'exitsure_sync_task_not_found',
+					esc_html__( 'Task could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			return rest_ensure_response( $this->prepare_task_template_for_response( $task ) );
+		}
+
+		/**
+		 * Updates a task template.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function update_task_template( $request ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_tasks_table',
+					esc_html__( 'Tasks table could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$task_id = absint( $request->get_param( 'task_id' ) );
+			$task    = $this->get_task_template_by_id( $task_id );
+
+			if ( empty( $task ) ) {
+				return new WP_Error(
+					'exitsure_sync_task_not_found',
+					esc_html__( 'Task could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			$data    = array();
+			$formats = array();
+
+			if ( $request->has_param( 'type' ) ) {
+				$data['type'] = (string) $request->get_param( 'type' );
+				$formats[]    = '%s';
+			}
+
+			if ( $request->has_param( 'title' ) ) {
+				$data['title'] = (string) $request->get_param( 'title' );
+				$formats[]     = '%s';
+			}
+
+			if ( $request->has_param( 'description' ) ) {
+				$data['description'] = (string) $request->get_param( 'description' );
+				$formats[]           = '%s';
+			}
+
+			if ( $request->has_param( 'is_required' ) ) {
+				$data['is_required'] = rest_sanitize_boolean( $request->get_param( 'is_required' ) ) ? 1 : 0;
+				$formats[]           = '%d';
+			}
+
+			if ( $request->has_param( 'is_enabled' ) ) {
+				$data['is_enabled'] = rest_sanitize_boolean( $request->get_param( 'is_enabled' ) ) ? 1 : 0;
+				$formats[]          = '%d';
+			}
+
+			if ( $request->has_param( 'sort_order' ) ) {
+				$data['sort_order'] = absint( $request->get_param( 'sort_order' ) );
+				$formats[]          = '%d';
+			}
+
+			if ( empty( $data ) ) {
+				return rest_ensure_response( $this->prepare_task_template_for_response( $task ) );
+			}
+
+			$data['updated_at'] = ExitSure_Sync_DB::get_current_datetime();
+			$formats[]          = '%s';
+
+			$updated = $wpdb->update(
+				$table,
+				$data,
+				array(
+					'id' => $task_id,
+				),
+				$formats,
+				array(
+					'%d',
+				)
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'exitsure_sync_task_update_failed',
+					esc_html__( 'Task could not be updated.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$task = $this->get_task_template_by_id( $task_id );
+
+			return rest_ensure_response( $this->prepare_task_template_for_response( $task ) );
+		}
+
+		/**
+		 * Disables a task template.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function disable_task_template( $request ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_tasks_table',
+					esc_html__( 'Tasks table could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$task_id = absint( $request->get_param( 'task_id' ) );
+			$task    = $this->get_task_template_by_id( $task_id );
+
+			if ( empty( $task ) ) {
+				return new WP_Error(
+					'exitsure_sync_task_not_found',
+					esc_html__( 'Task could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			$updated = $wpdb->update(
+				$table,
+				array(
+					'is_enabled' => 0,
+					'updated_at' => ExitSure_Sync_DB::get_current_datetime(),
+				),
+				array(
+					'id' => $task_id,
+				),
+				array(
+					'%d',
+					'%s',
+				),
+				array(
+					'%d',
+				)
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'exitsure_sync_task_disable_failed',
+					esc_html__( 'Task could not be disabled.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$task = $this->get_task_template_by_id( $task_id );
+
+			return rest_ensure_response( $this->prepare_task_template_for_response( $task ) );
 		}
 	}
 }
