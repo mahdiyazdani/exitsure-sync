@@ -1,0 +1,358 @@
+<?php
+/**
+ * Checklist runs REST API controller.
+ *
+ * @package ExitSureSync
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+if ( ! class_exists( 'ExitSure_Sync_Checklist_Runs_REST_Controller' ) ) {
+	/**
+	 * Handles checklist run REST API routes.
+	 */
+	final class ExitSure_Sync_Checklist_Runs_REST_Controller extends ExitSure_Sync_Abstract_REST_Controller {
+
+		/**
+		 * Registers REST API routes.
+		 *
+		 * @return void
+		 */
+		public function register_routes() {
+			register_rest_route(
+				self::NAMESPACE,
+				'/locations/(?P<location_id>[\d]+)/checklists/start',
+				array(
+					'args' => array(
+						'location_id' => array(
+							'required'          => true,
+							'type'              => 'integer',
+							'sanitize_callback' => 'absint',
+						),
+					),
+					array(
+						'methods'             => WP_REST_Server::CREATABLE,
+						'callback'            => array( $this, 'start_checklist_run' ),
+						'permission_callback' => array( $this, 'can_manage_options' ),
+						'args'                => array(
+							'type'        => array(
+								'required'          => true,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_key',
+								'validate_callback' => array( $this, 'validate_task_type' ),
+							),
+							'client_uuid' => array(
+								'required'          => true,
+								'type'              => 'string',
+								'sanitize_callback' => 'sanitize_text_field',
+								'validate_callback' => array( $this, 'validate_uuid' ),
+							),
+						),
+					),
+				)
+			);
+		}
+
+		/**
+		 * Starts a checklist run.
+		 *
+		 * @param WP_REST_Request $request Request object.
+		 *
+		 * @return WP_REST_Response|WP_Error
+		 */
+		public function start_checklist_run( $request ) {
+			global $wpdb;
+
+			$runs_table      = ExitSure_Sync_DB::get_table_name( 'runs' );
+			$run_items_table = ExitSure_Sync_DB::get_table_name( 'run_items' );
+			$tasks_table     = ExitSure_Sync_DB::get_table_name( 'tasks' );
+
+			if ( '' === $runs_table || '' === $run_items_table || '' === $tasks_table ) {
+				return new WP_Error(
+					'exitsure_sync_missing_checklist_tables',
+					esc_html__( 'Checklist tables could not be resolved.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$location_id = absint( $request->get_param( 'location_id' ) );
+			$location    = $this->get_location_by_id( $location_id );
+
+			if ( empty( $location ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_not_found',
+					esc_html__( 'Location could not be found.', 'exitsure-sync' ),
+					array( 'status' => 404 )
+				);
+			}
+
+			if ( ! empty( $location['is_archived'] ) ) {
+				return new WP_Error(
+					'exitsure_sync_location_archived',
+					esc_html__( 'Checklist runs cannot be started for an archived location.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$type        = (string) $request->get_param( 'type' );
+			$client_uuid = (string) $request->get_param( 'client_uuid' );
+			$existing    = $this->get_checklist_run_by_client_uuid( $client_uuid );
+
+			if ( ! empty( $existing ) ) {
+				return rest_ensure_response( $this->prepare_checklist_run_for_response( $existing ) );
+			}
+
+			$tasks = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$tasks_table} WHERE location_id = %d AND type = %s AND is_enabled = %d ORDER BY sort_order ASC, id ASC",
+					$location_id,
+					$type,
+					1
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $tasks ) ) {
+				return new WP_Error(
+					'exitsure_sync_no_tasks_found',
+					esc_html__( 'No enabled tasks were found for this checklist type.', 'exitsure-sync' ),
+					array( 'status' => 400 )
+				);
+			}
+
+			$datetime = ExitSure_Sync_DB::get_current_datetime();
+
+			$inserted = $wpdb->insert(
+				$runs_table,
+				array(
+					'uuid'         => ExitSure_Sync_DB::get_uuid(),
+					'client_uuid'  => $client_uuid,
+					'location_id'  => $location_id,
+					'type'         => $type,
+					'status'       => 'draft',
+					'note'         => '',
+					'latitude'     => null,
+					'longitude'    => null,
+					'started_at'   => $datetime,
+					'completed_at' => null,
+					'created_at'   => $datetime,
+					'updated_at'   => $datetime,
+				),
+				array(
+					'%s',
+					'%s',
+					'%d',
+					'%s',
+					'%s',
+					'%s',
+					'%f',
+					'%f',
+					'%s',
+					'%s',
+					'%s',
+					'%s',
+				)
+			);
+
+			if ( false === $inserted ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_create_failed',
+					esc_html__( 'Checklist run could not be created.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			$run_id = (int) $wpdb->insert_id;
+
+			foreach ( $tasks as $task ) {
+				$wpdb->insert(
+					$run_items_table,
+					array(
+						'uuid'                 => ExitSure_Sync_DB::get_uuid(),
+						'run_id'               => $run_id,
+						'task_template_id'     => absint( $task['id'] ),
+						'title_snapshot'       => $task['title'],
+						'is_required_snapshot' => ! empty( $task['is_required'] ) ? 1 : 0,
+						'is_checked'           => 0,
+						'checked_at'           => null,
+						'note'                 => '',
+						'created_at'           => $datetime,
+						'updated_at'           => $datetime,
+					),
+					array(
+						'%s',
+						'%d',
+						'%d',
+						'%s',
+						'%d',
+						'%d',
+						'%s',
+						'%s',
+						'%s',
+						'%s',
+					)
+				);
+			}
+
+			$run = $this->get_checklist_run_by_id( $run_id );
+
+			if ( empty( $run ) ) {
+				return new WP_Error(
+					'exitsure_sync_checklist_run_not_found',
+					esc_html__( 'Created checklist run could not be loaded.', 'exitsure-sync' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			return new WP_REST_Response(
+				$this->prepare_checklist_run_for_response( $run ),
+				201
+			);
+		}
+
+		/**
+		 * Gets a checklist run by ID.
+		 *
+		 * @param int $run_id Checklist run ID.
+		 *
+		 * @return array|null
+		 */
+		private function get_checklist_run_by_id( $run_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'runs' );
+
+			if ( '' === $table ) {
+				return null;
+			}
+
+			$run = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE id = %d",
+					$run_id
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $run ) ) {
+				return null;
+			}
+
+			return $run;
+		}
+
+		/**
+		 * Gets a checklist run by client UUID.
+		 *
+		 * @param string $client_uuid Client UUID.
+		 *
+		 * @return array|null
+		 */
+		private function get_checklist_run_by_client_uuid( $client_uuid ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'runs' );
+
+			if ( '' === $table ) {
+				return null;
+			}
+
+			$run = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE client_uuid = %s",
+					$client_uuid
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $run ) ) {
+				return null;
+			}
+
+			return $run;
+		}
+
+		/**
+		 * Gets checklist run items.
+		 *
+		 * @param int $run_id Checklist run ID.
+		 *
+		 * @return array
+		 */
+		private function get_checklist_run_items( $run_id ) {
+			global $wpdb;
+
+			$table = ExitSure_Sync_DB::get_table_name( 'run_items' );
+
+			if ( '' === $table ) {
+				return array();
+			}
+
+			$items = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$table} WHERE run_id = %d ORDER BY id ASC",
+					$run_id
+				),
+				ARRAY_A
+			);
+
+			if ( empty( $items ) ) {
+				return array();
+			}
+
+			return $items;
+		}
+
+		/**
+		 * Prepares a checklist run for REST API response.
+		 *
+		 * @param array $run Checklist run row.
+		 *
+		 * @return array
+		 */
+		private function prepare_checklist_run_for_response( $run ) {
+			return array(
+				'id'           => absint( $run['id'] ),
+				'uuid'         => $run['uuid'],
+				'client_uuid'  => $run['client_uuid'],
+				'location_id'  => absint( $run['location_id'] ),
+				'type'         => $run['type'],
+				'status'       => $run['status'],
+				'note'         => $run['note'],
+				'latitude'     => null !== $run['latitude'] ? (float) $run['latitude'] : null,
+				'longitude'    => null !== $run['longitude'] ? (float) $run['longitude'] : null,
+				'started_at'   => $run['started_at'],
+				'completed_at' => $run['completed_at'],
+				'created_at'   => $run['created_at'],
+				'updated_at'   => $run['updated_at'],
+				'items'        => array_map(
+					array( $this, 'prepare_checklist_run_item_for_response' ),
+					$this->get_checklist_run_items( absint( $run['id'] ) )
+				),
+			);
+		}
+
+		/**
+		 * Prepares a checklist run item for REST API response.
+		 *
+		 * @param array $item Checklist run item row.
+		 *
+		 * @return array
+		 */
+		private function prepare_checklist_run_item_for_response( $item ) {
+			return array(
+				'id'                   => absint( $item['id'] ),
+				'uuid'                 => $item['uuid'],
+				'run_id'               => absint( $item['run_id'] ),
+				'task_template_id'     => absint( $item['task_template_id'] ),
+				'title_snapshot'       => $item['title_snapshot'],
+				'is_required_snapshot' => (bool) $item['is_required_snapshot'],
+				'is_checked'           => (bool) $item['is_checked'],
+				'checked_at'           => $item['checked_at'],
+				'note'                 => $item['note'],
+				'created_at'           => $item['created_at'],
+				'updated_at'           => $item['updated_at'],
+			);
+		}
+	}
+}
